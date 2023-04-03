@@ -1,0 +1,1368 @@
+
+# Luke Harrison
+# v1 06/05/2021 - code created
+# v2 11/08/2021 - code completed and package versions retained
+# v3 23/01/2022 - code checked for errors, minor amendments
+# v4 04/07/2022 - code checked for errors, minor amendments
+# v5 26/03/2023 - code checked for errors, minor amendments
+
+# Figures and statistics for Harrison et al. (Under Review)
+# Widening mismatch between UK seafood production and 
+# consumer demand: A 120-year perspective
+# Version 4.1.2
+
+###############################################################################
+## Housekeeping ##
+
+# Clear R workspace
+rm(list=ls())
+
+# Load packages
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, openxlsx, cowplot, ggpubr, gridExtra,
+               grid, multcomp, mgcv, DHARMa, mgcViz, visreg, 
+               remotes)
+
+# Package versions used and descriptions
+packageVersion("tidyverse") # 1.3.1. Tools to model, transform, 
+# and visualise data, e.g., ggplot, dplyr, car.
+packageVersion("openxlsx") # 4.2.4. To open excel files.
+packageVersion("cowplot") # 1.1.1. Create publication figures.
+packageVersion("ggpubr") # 0.4.0. Create publication figures.
+packageVersion("gridExtra") # 2.3. Grid-based plots.
+packageVersion("multcomp") # 1.4.17. Statistical analysis for GLMs
+packageVersion("visreg") # 2.7.0. Visualises regression models.
+packageVersion("mgcv") # 1.8.35. Generalised additive models.
+packageVersion("DHARMa") # 0.4.3. Check model assumptions.
+packageVersion("segmented") # 1.3.4. Segmented regression.
+
+# Install old version of segmented package as new version (1.6.0)
+# has a bug where BIC cannot be used for segmented analysis
+if (!require("segmented")) install_version("segmented", "1.3.4")
+library(segmented)
+
+#########################################################################################
+## Read in data ##
+
+# Read in UK landings, trade and aquaculture data 1900-2019. 
+# Sourced from the UK Sea Fisheries Statistics, ICES, and FAO. 
+# Date 11/08/2021; Updated on 05/10/2021
+fish_data_raw <- read.xlsx(".//UK_seafood_production_trade.xlsx",
+                           sheet="Clean_data_1900-2020")
+
+# Rename variables
+fish_data <-
+  fish_data_raw %>%
+  rename(country = Country,
+         year = Year,
+         species = Species,
+         landings = "Domestic.landings.('000.tonnes.landed.weight)",
+         exports = "Exports.('000.tonnes.processed.weight)",
+         imports = "Imports.('000.tonnes.processed.weight)",
+         aquaculture = "Aquaculture.('000.tonnes.landed.weight)",
+         landings_value = "Value.of.domestic.landings.(£.million)",
+         exports_value = "Value.of.exports.(£.million)",
+         imports_value = "Value.of.imports.(£.million)",
+         aquaculture_value = `Value.of.aquaculture.(£.million)`,
+         period = Period,
+         recommended = `Recommended.fish.intake.('000.tonnes)`,
+         landings_consumed = `Domestic.landings.('000.tonnes.processed.weight)`,
+         aquaculture_consumed = `Aquaculture.('000.tonnes.processed.weight)`,
+         landings_abroad_value = `Value.of.landings.abroad.(£.million)`,
+         landings_abroad = `Landings.abroad.('000.tonnes.landed.weight)`,
+         landings_abroad_consumed = `Landings.abroad.('000.tonnes.processed.weight)`)
+
+# Read in ICES landings data 1903-2018, date 11/08/2021
+fish_ices_raw <- read.xlsx(".//UK_fisheries_aquaculture_statistics_dataset_clean.xlsx",
+                           sheet="ICES_data_1903-2018")
+
+# Rename variables
+fish_ices <-
+  fish_ices_raw %>%
+  rename(country = Country,
+         year = Year,
+         species = Species,
+         landings = `Total.UK.landings.TLW.('000.tonnes)`,
+         aquaculture = `Aquaculture.TLW.('000.tonnes)`,
+         landaqua = `Total.landings.and.aquaculture.('000.tonnes)`) %>%
+  dplyr:: select(country, year, species, landings, aquaculture,
+                 landaqua)
+
+######################################################################################
+## Seafood production and trade over time ##
+
+# Reshape data for uk total species
+uk_total <- fish_data %>%
+  filter(country == "UK", species == "Total")
+
+# Reshape for temporal changes plot
+uk_total_time <-
+  uk_total %>%
+  dplyr::select(year, landings, imports, exports, aquaculture) %>%
+  gather(category, value, landings:aquaculture)
+
+# Plot for temporal changes in landings, aquaculture, imports and 
+# exports
+p1 <- ggplot(uk_total_time, aes(x = year, y = value, 
+                                color = category)) +
+  geom_line() +
+  scale_colour_manual(limits = c("landings", "imports", "exports", 
+                                 "aquaculture"),
+                      labels = c("Landings", "Imports", "Exports*", 
+                                 "Aquaculture"),
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  theme_classic(base_size=16) +
+  theme(axis.text.x = element_text(colour = "black"), 
+        axis.text.y = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"),
+        axis.title.x = element_text(face = "bold")) +
+  scale_x_continuous(breaks = seq(1900, 2020, 20)) +
+  scale_y_continuous(breaks = seq(0, 1250, 250)) +
+  labs(x = "Year", y = "Weight of finfish and 
+shellfish ('000 tonnes)", color = "") +
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = 1300, ymax = 1350,
+           fill = "grey") +
+  annotate("point", x = 1905, y = 1390, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1905, y = 1450, label = "OA") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = 1300, ymax = 1350,
+           fill = "grey30") +
+  annotate("point", x = 1916, y = 1390, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1916, y = 1450, label = "WWI") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = 1300, ymax = 1350,
+           fill = "grey") +
+  annotate("point", x = 1928.5, y = 1390, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1928.5, y = 1450, label = "OA") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = 1300, ymax = 1350,
+           fill = "grey30") +
+  annotate("point", x = 1942, y = 1390, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1942, y = 1450, label = "WWII") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = 1300, ymax = 1350,
+           fill = "grey") +
+  annotate("point", x = 1960.5, y = 1390, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1960.5, y = 1450, label = "OA") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = 1300, ymax = 1350,
+           fill = "black") +
+  annotate("point", x = 1998, y = 1390, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1998, y = 1450, label = "EEZ/EU") +
+  annotate("rect", xmin = 2020, xmax = 2025,
+           ymin = 1300, ymax = 1350,
+           fill = "grey50") +
+  annotate("point", x = 2022.5, y = 1390, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 2022.5, y = 1450, label = "Brexit")
+
+# Save plot
+save_plot("./fig.1.temporal.changes.png",
+          p1, base_width=7, base_height=4)
+
+########################################################################################
+## Seafood consumption ##
+
+# Create new data frame
+uk_availability_plot <- uk_total %>%
+  replace(is.na(.), 0) 
+
+# Add consumption variable
+uk_availability_plot$availability <-
+  ifelse(uk_availability_plot$year < 1906 | 
+           uk_availability_plot$year > 2019, 
+         uk_availability_plot$availability == NA, 
+         uk_availability_plot$landings_consumed + 
+           uk_availability_plot$aquaculture_consumed +
+           uk_availability_plot$landings_abroad_consumed +
+           uk_availability_plot$imports -
+           uk_availability_plot$exports)
+
+# Add variable for processed landings and processed aquaculture
+uk_availability_plot$land_consumed <- 
+  ifelse(uk_availability_plot$year > 2019, 
+         uk_availability_plot$land_consumed == NA,
+         uk_availability_plot$landings_consumed)
+
+uk_availability_plot$aq_consumed <- 
+  ifelse(uk_availability_plot$year > 2019, 
+         uk_availability_plot$aq_consumed == NA,
+         uk_availability_plot$aquaculture_consumed)
+
+## Unprocessed aquaculture and landings ##
+
+# Create variable for unprocessed landings plus 
+# unprocessed aquaculture
+uk_availability_plot$landun <- 
+  ifelse(uk_availability_plot$year > 2019, 
+         uk_availability_plot$landun == NA,
+         uk_availability_plot$landings)
+
+uk_availability_plot$aquaun <- 
+  ifelse(uk_availability_plot$year > 2019, 
+         uk_availability_plot$aquaun == NA,
+         uk_availability_plot$aquaculture)
+
+# Reshape data for plot
+uk_availability_plot <-
+  uk_availability_plot %>%
+  dplyr:: select(year, landings_consumed,
+                 availability, recommended, 
+                 land_consumed, aq_consumed, 
+                 landun,aquaun)
+
+uk_avail <- uk_availability_plot %>%
+  gather(type, quantity, landun:aquaun)
+
+uk_availproc <- uk_availability_plot %>%
+  gather(type, quantity, land_consumed:aq_consumed)
+
+# Plot of unprocessed landings and aquaculture
+p2a <- ggplot(uk_avail) +
+  geom_area(aes(x = year, y = quantity, fill = type)) +
+  theme_classic(base_size = 16) +
+  geom_line(aes(x = year, y = availability, color = 'availability',
+                linetype = 'availability',
+                size = 'availability')) +
+  geom_line(aes(x = year, y = recommended, color = 'recommended',
+                linetype = 'recommended',
+                size = 'recommended')) +
+  scale_color_manual(limits = c("landun", "aquaun",
+                                "availability", 
+                                "recommended"), 
+                     values = c(NA, NA,
+                                "black", "black"),
+                     labels = c("Landings", "Aquaculture",
+                                "Consumption",
+                                "Recommended intake")) +
+  scale_linetype_manual(limits = c("landun", "aquaun",
+                                   "availability", 
+                                   "recommended"),
+                        values = c(NA, NA,
+                                   "solid", "dashed"),
+                        labels = c("Landings", "Aquaculture",
+                                   "Consumption",
+                                   "Recommended intake"))  +
+  scale_size_manual(limits = c("land_consumed", 
+                               "aq_consumed",
+                               "availability", 
+                               "recommended"),
+                    values = c(0, 0,
+                               0.9, 0.6),
+                    labels = c("Landings", "Aquaculture",
+                               "Consumption",
+                               "Recommended intake"))+
+  scale_fill_manual(limits = c("landun", "aquaun",
+                               "availability", 
+                               "recommended"),
+                    labels = c("Landings", "Aquaculture",
+                               "Consumption",
+                               "Recommended intake"),
+                    values = c("#4DBBD5FF",
+                               "#E64B35FF", NA, NA)) +
+  labs(y = "Weight of finfish and shellfish ('000 tonnes)    ",
+       x = "Year", colour = "", linetype = "", size = "",
+       fill = "") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20)) +
+  scale_y_continuous(breaks = seq(0, 1250, 250),
+                     limits = c(0, 1500)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) + 
+  annotate(geom="text", x=1930, y=1500, 
+           label="~bold(a)~Unprocessed",
+           color="black", size = 6,
+           parse = TRUE) +
+  guides(color = 
+           guide_legend(override.aes = 
+                          list(fill = c("#4DBBD5FF",
+                                        "#E64B35FF", NA, NA)))) +
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey") +
+  annotate("point", x = 1904, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1904, y = 1410, label = "OA") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey30") +
+  annotate("point", x = 1916, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1916, y = 1410, label = "WWI") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey") +
+  annotate("point", x = 1928.5, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1928.5, y = 1410, label = "OA") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey30") +
+  annotate("point", x = 1942, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1942, y = 1410, label = "WWII") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey") +
+  annotate("point", x = 1960.5, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1960.5, y = 1410, label = "OA") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = 1275, ymax = 1325,
+           fill = "black") +
+  annotate("point", x = 1998, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1998, y = 1410, label = "EEZ/EU") +
+  annotate("rect", xmin = 2020, xmax = 2025,
+           ymin = 1275, ymax = 1325,
+           fill = "grey50") +
+  annotate("point", x = 2022.5, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 2022.5, y = 1410, label = "Brexit")
+
+# Plot of processed landings and aquaculture
+p2b <- ggplot(uk_availproc) +
+  geom_area(aes(x = year, y = quantity, fill = type)) +
+  theme_classic(base_size = 16) +
+  geom_line(aes(x = year, y = availability, color = 'availability',
+                linetype = 'availability',
+                size = 'availability')) +
+  geom_line(aes(x = year, y = recommended, color = 'recommended',
+                linetype = 'recommended',
+                size = 'recommended')) +
+  scale_color_manual(limits = c("land_consumed", 
+                                "aq_consumed",
+                                "availability", 
+                                "recommended"), 
+                     values = c(NA, NA,
+                                "black", "black"),
+                     labels = c("Landings", "Aquaculture",
+                                "Consumption",
+                                "Recommended intake")) +
+  scale_linetype_manual(limits = c("land_consumed", 
+                                   "aq_consumed",
+                                   "availability", 
+                                   "recommended"),
+                        values = c(NA, NA,
+                                   "solid", "dashed"),
+                        labels = c("Landings", "Aquaculture",
+                                   "Consumption",
+                                   "Recommended intake")) +
+  scale_size_manual(limits = c("land_consumed", 
+                               "aq_consumed",
+                               "availability", 
+                               "recommended"),
+                    values = c(0, 0,
+                               0.9, 0.6),
+                    labels = c("Landings", "Aquaculture",
+                               "Consumption",
+                               "Recommended intake")) +
+  scale_fill_manual(limits = c("land_consumed", 
+                               "aq_consumed",
+                               "availability", 
+                               "recommended"),
+                    labels = c("Landings", "Aquaculture",
+                               "Consumption",
+                               "Recommended intake"),
+                    values = c("#4DBBD5FF",
+                               "#E64B35FF", NA, NA)) +
+  labs(y = "Weight of finfish and shellfish ('000 tonnes)    ",
+       x = "Year", colour = "", linetype = "", size = "",
+       fill = "") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20)) +
+  scale_y_continuous(breaks = seq(0, 1250, 250),
+                     limits = c(0, 1500)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) + 
+  annotate(geom="text", x=1925, y=1500, 
+           label="~bold(b)~Processed",
+           color="black", size = 6,
+           parse = TRUE) +
+  guides(color = 
+           guide_legend(override.aes = 
+                          list(fill = c("#4DBBD5FF",
+                                        "#E64B35FF", NA, NA))))+
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey") +
+  annotate("point", x = 1904, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1904, y = 1410, label = "OA") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey30") +
+  annotate("point", x = 1916, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1916, y = 1410, label = "WWI") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey") +
+  annotate("point", x = 1928.5, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1928.5, y = 1410, label = "OA") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey30") +
+  annotate("point", x = 1942, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1942, y = 1410, label = "WWII") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = 1275, ymax = 1325,
+           fill = "grey") +
+  annotate("point", x = 1960.5, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1960.5, y = 1410, label = "OA") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = 1275, ymax = 1325,
+           fill = "black") +
+  annotate("point", x = 1998, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1998, y = 1410, label = "EEZ/EU") +
+  annotate("rect", xmin = 2020, xmax = 2025,
+           ymin = 1275, ymax = 1325,
+           fill = "grey50") +
+  annotate("point", x = 2022.5, y = 1360, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 2022.5, y = 1410, label = "Brexit")
+
+# Combine plots and save figure
+p2 <- ggarrange(p2a, p2b, ncol = 2, 
+                widths = c(1, 1),
+                labels = c("a", "b"), align = 'v',
+                common.legend = TRUE)
+
+p2test <- ggarrange(p2a, 
+                    p2b + 
+                      theme(axis.text.y = element_blank(),
+                            axis.title.y = element_blank()),
+                    nrow = 1, common.legend = TRUE, 
+                    legend="top", widths = c(1, .84),
+                    font.label = list(size = 20),
+                    align = "h")
+
+p2i <- cowplot::ggdraw(p2test) + 
+  theme(plot.background = element_rect(fill="white", color = NA))
+
+save_plot("./fig.2.consumption.png",
+          p2i, base_width=8, base_height=6) 
+
+#######################################################################################
+## Economics ##
+
+# Create new data frame
+uk_total_value <- uk_total
+
+# Plots exports vs imports
+p3a <- ggplot(uk_total_value) +
+  geom_line(aes(x = year, y = imports_value,
+                color = 'imports_value')) +
+  geom_line(aes(x = year, y = exports_value,
+                color = 'exports_value')) +
+  geom_line(aes(x = year, y = landings_value,
+                color = 'landings_value')) +
+  geom_line(aes(x = year, y = aquaculture_value,
+                color = 'aquaculture_value')) +
+  scale_colour_manual(limits = c("landings_value", 
+                                 "imports_value", 
+                                 "exports_value", 
+                                 "aquaculture_value"),
+                      labels = c("Landings", "Imports", "Exports*", 
+                                 "Aquaculture"),
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  theme_classic(base_size=16) +
+  theme(axis.text.x = element_text(colour = "black"), 
+        axis.text.y = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"),
+        axis.title.x = element_text(face = "bold")) +
+  scale_x_continuous(breaks = seq(1900, 2020, 20)) +
+  labs(x = "Year", y = "Value of finfish and
+shellfish (£ million)", color = "") +
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = 2080, ymax = 2155,
+           fill = "grey") +
+  annotate("point", x = 1905, y = 2215, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1905, y = 2305, label = "OA") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = 2080, ymax = 2155,
+           fill = "grey30") +
+  annotate("point", x = 1916, y = 2215, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1916, y = 2305, label = "WWI") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = 2080, ymax = 2155,
+           fill = "grey") +
+  annotate("point", x = 1928.5, y = 2215, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1928.5, y = 2305, label = "OA") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = 2080, ymax = 2155,
+           fill = "grey30") +
+  annotate("point", x = 1942, y = 2215, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1942, y = 2305, label = "WWII") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = 2080, ymax = 2155,
+           fill = "grey") +
+  annotate("point", x = 1960.5, y = 2215, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1960.5, y = 2305, label = "OA") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = 2080, ymax = 2155,
+           fill = "black") +
+  annotate("point", x = 1998, y = 2215, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1998, y = 2305, label = "EEZ/EU") +
+  annotate("rect", xmin = 2020, xmax = 2025,
+           ymin = 2080, ymax = 2155,
+           fill = "grey50") +
+  annotate("point", x = 2022.5, y = 2215, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 2022.5, y = 2305, label = "Brexit")
+
+
+# Save plot
+save_plot("./fig.3.temporal.value.png",
+          p3a, base_width=7, base_height=4) 
+
+######################################################################################
+## Species composition of landings ##
+
+# Reshape for landings species composition plot
+key_species <- c('Cod', 'Haddock', 'Herring', 'Mackerel',
+                 'Salmon', 'Tuna', 'Total', "Shrimps/Prawns",
+                 "Shellfish")
+
+uk_landings_species <- fish_ices %>%
+  filter(species %in% key_species) %>%
+  dplyr:: select(year, species, landaqua) %>%
+  spread(species, landaqua) %>%
+  replace(is.na(.), 0) %>%
+  relocate("Total", .after = last_col()) %>%
+  relocate("Shrimps/Prawns", .after = last_col())
+
+uk_landings_species$Other <- uk_landings_species$Total - 
+  rowSums(uk_landings_species[2:8])
+
+uk_landings_species$Othershell <- uk_landings_species$Shellfish - 
+  uk_landings_species$`Shrimps/Prawns`
+
+uk_landings_species <-
+  uk_landings_species %>%
+  dplyr:: select(-c('Total'), -c('Shellfish')) %>%
+  rename('Other finfish' = Other,
+         'Other shellfish' = Othershell) %>%
+  gather(species, quantity, Cod:"Other shellfish") %>%
+  filter(year < 2019)
+
+# Composition plot for aquaculture and landings
+fill.order.landings <- factor(uk_landings_species$species, 
+                              levels = c('Cod', 'Haddock', 'Herring', 
+                                         'Mackerel', 'Salmon', 
+                                         'Tuna', 'Other finfish', 
+                                         'Shrimps/Prawns',
+                                         'Other shellfish'))
+
+p4a <- ggplot(uk_landings_species, aes(x=year, y=quantity)) + 
+  geom_area(aes(x=year, y=quantity,
+                fill = fill.order.landings)) +
+  theme_classic(base_size = 16) +
+  scale_fill_manual(values = c("#E64B35FF", "#4DBBD5FF", 
+                               "#00A087FF", "#3C5488FF", 
+                               "#F39B7FFF", "#8491B4FF",
+                               "grey25", "#DF8F44FF", "#91D1C2FF")) +
+  labs(y = "Weight of finfish and shellfish ('000 tonnes)", 
+       fill = "",
+       x = "Year") +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_y_continuous(breaks = seq(0, 1250, 250),
+                     limits = c(0, 1700)) +
+  annotate(geom="text", x=1900, y=1370, 
+           label='~bold("a")~"Landings and aquaculture (unprocessed)"',
+           color="black", size = 5, parse = TRUE, hjust = 0) +
+  scale_x_continuous(breaks = seq(1900, 2025, 20),
+                     limits = c(1900, 2025)) +
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = 1480, ymax = 1530,
+           fill = "grey") +
+  annotate("point", x = 1905, y = 1600, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1905, y = 1700, label = "OA") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = 1480, ymax = 1530,
+           fill = "grey30") +
+  annotate("point", x = 1916, y = 1600, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1916, y = 1700, label = "WWI") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = 1480, ymax = 1530,
+           fill = "grey") +
+  annotate("point", x = 1928.5, y = 1600, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1928.5, y = 1700, label = "OA") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = 1480, ymax = 1530,
+           fill = "grey30") +
+  annotate("point", x = 1942, y = 1600, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1942, y = 1700, label = "WWII") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = 1480, ymax = 1530,
+           fill = "grey") +
+  annotate("point", x = 1960.5, y = 1600, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1960.5, y = 1700, label = "OA") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = 1480, ymax = 1530,
+           fill = "black") +
+  annotate("point", x = 1998, y = 1600, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1998, y = 1700, label = "EEZ/EU") +
+  annotate("rect", xmin = 2020, xmax = 2025,
+           ymin = 1480, ymax = 1530,
+           fill = "grey50") +
+  annotate("point", x = 2022.5, y = 1600, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 2022.5, y = 1700, label = "Brexit")
+
+#################################################################################
+## Species composition imported and exported ##
+
+# Reshape for imports species plot
+imports_species <- fish_data
+
+imports_species <- imports_species %>%
+  filter(species %in% key_species) %>%
+  dplyr:: select(year, species, imports) %>%
+  spread(species, imports) %>%
+  relocate("Total", .after = last_col()) %>%
+  relocate("Shrimps/Prawns", .after = last_col()) %>%
+  replace(is.na(.), 0) %>%
+  mutate_if(is.character,as.numeric) %>%
+  arrange(year)
+
+imports_species$"Other finfish" <- imports_species$Total - 
+  rowSums(imports_species[2:8])
+
+imports_species$"Other shellfish" <- imports_species$Shellfish - 
+  imports_species$`Shrimps/Prawns`
+
+imports_species <- imports_species %>%
+  dplyr:: select(-c("Total"), -c("Shellfish")) %>%
+  gather(species, imports, Cod:"Other shellfish") %>%
+  arrange(year) %>%
+  replace(is.na(.), 0) %>%
+  spread(year, imports) %>%
+  dplyr:: select(species, '1900', '1905', '1910', '1914':'1920',
+                 '1925', '1930', '1935', '1940', '1942', '1944', 
+                 '1946', '1950', '1955', '1960', '1965':'2020') %>%
+  gather(year, imports, '1905':'2020')
+
+imports_species$year <- as.numeric(imports_species$year)
+
+# Plot changes in UK landings over time
+fill.order.imports <- factor(imports_species$species, 
+                             levels = c('Cod', 'Haddock', 'Herring', 
+                                        'Mackerel', 'Salmon', 
+                                        'Tuna', 'Other finfish',
+                                        "Shrimps/Prawns",
+                                        'Other shellfish'))
+
+p4b <- ggplot(imports_species, aes(x=year, y=imports)) + 
+  geom_area(aes(x=year, y=imports,
+                fill = fill.order.imports)) +
+  theme_classic(base_size = 16) +
+  scale_fill_manual(values = c("#E64B35FF", "#4DBBD5FF", 
+                               "#00A087FF", "#3C5488FF", 
+                               "#F39B7FFF", "#8491B4FF",
+                               "grey25", "#DF8F44FF", "#91D1C2FF")) +
+  labs(y = "Weight of finfish and shellfish ('000 tonnes)", 
+       fill = "",
+       x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2025, 20),
+                     limits = c(1900, 2025)) +
+  theme(axis.text.y = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold"),
+        axis.text.x = element_text(colour = "black")) +
+  annotate(geom="text", x=1900, y=770, 
+           label='~bold("b")~"Imports (processed)"',
+           color="black", size = 5, hjust = 0, parse = TRUE)
+
+# Reshape for exports species plot
+exports_species <- fish_data
+
+exports_species <- exports_species %>%
+  filter(species %in% key_species) %>%
+  dplyr:: select(year, species, exports) %>%
+  spread(species, exports) %>%
+  relocate("Shrimps/Prawns", .after = last_col()) %>%
+  relocate("Total", .after = last_col()) %>%
+  replace(is.na(.), 0) %>%
+  mutate_if(is.character,as.numeric) %>%
+  arrange(year)
+
+exports_species$"Other finfish" <- exports_species$Total - 
+  rowSums(exports_species[2:8])
+
+exports_species$"Other shellfish" <- exports_species$Shellfish - 
+  exports_species$`Shrimps/Prawns`
+
+exports_species <- exports_species %>%
+  dplyr:: select(-c("Total"), -c("Shellfish")) %>%
+  gather(species, exports, Cod:"Other shellfish") %>%
+  arrange(year) %>%
+  replace(is.na(.), 0) %>%
+  spread(year, exports) %>%
+  dplyr:: select(species, '1900', '1905', '1910', '1914':'1920', 
+                 '1925', '1930', '1935', '1940', '1942', '1944', 
+                 '1946', '1950', '1955', '1960', '1965':'2020') %>%
+  gather(year, exports, '1910':'2020')
+
+exports_species$year <- as.numeric(exports_species$year)
+
+# Plot changes in UK landings over time
+fill.order.exports <- factor(exports_species$species, 
+                             levels = c('Cod', 'Haddock', 'Herring',
+                                        'Mackerel', 'Salmon', 
+                                        'Tuna', 'Other finfish', 
+                                        'Shrimps/Prawns',
+                                        'Other shellfish'))
+
+p4c <- ggplot(exports_species, aes(x=year, y=exports)) + 
+  geom_area(aes(x=year, y=exports,
+                fill = fill.order.exports)) +
+  theme_classic(base_size = 16) +
+  scale_fill_manual(values = c("#E64B35FF", "#4DBBD5FF", 
+                               "#00A087FF", "#3C5488FF", 
+                               "#F39B7FFF", "#8491B4FF",
+                               "grey25", "#DF8F44FF", "#91D1C2FF")) +
+  labs(y = "Weight of finfish and shellfish ('000 tonnes)", 
+       fill = "",
+       x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2025, 20),
+                     limits = c(1900, 2025)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  annotate(geom="text", x=1900, y=500, 
+           label='~bold("c")~"Exports (processed)"',
+           color="black", size = 5, hjust = 0, parse = TRUE)
+
+# Merge import, exports and landings plots and save figure
+p4 <- ggarrange(p4a + rremove("ylab"), NULL, 
+                p4b + rremove("ylab"), 
+                NULL, 
+                p4c + rremove("ylab"), ncol = 1,
+                align = 'v', heights = c(1.2, -0.215, 1, -0.215, 1),
+                common.legend = TRUE, legend = 'right')
+
+p4test <- annotate_figure(p4,left = 
+  textGrob(expression(bold("Weight of finfish and shellfish ('000 tonnes)")), 
+                                          rot = 90, 
+                                          vjust = 1, gp = gpar(cex = 1.4)))
+
+p4i <- cowplot::ggdraw(p4test) + 
+  theme(plot.background = element_rect(fill="white", color = NA))
+
+save_plot("./fig.4.species_composition_trade.png",
+          p4i, base_width=7, base_height=7.5)
+
+
+###############################################################################
+## Landings, aquaculture, imports, and exports of significant
+## species ##
+
+# Reshape for cod plot
+uk_cod_quantity <- fish_data
+
+uk_cod_quantity <- uk_cod_quantity %>%
+  rowwise() %>% 
+  mutate(landingst = sum(landings, landings_abroad, na.rm=TRUE)) %>%
+  dplyr:: select(country, year, species, landingst, 
+                 imports, exports) %>%
+  filter(country == "UK", species == "Cod") %>%
+  gather('type', 'quantity', 'landingst':'exports') %>%
+  arrange(year)
+
+uk_cod_quantity$quantity <- as.numeric(uk_cod_quantity$quantity)
+
+# Plot for cod
+p5a <- ggplot(uk_cod_quantity, aes(x = year, y = quantity,
+                                   color = type)) +
+  geom_line(data = subset(uk_cod_quantity, type == 'landingst')) +
+  geom_point(data = subset(uk_cod_quantity, type != 'landingst')) +
+  theme_classic(base_size = 16) +
+  labs(y = "Cod
+('000 tonnes)", colour = "", x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20), 
+                     limits = c(1919, 2020)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_colour_manual(limits = c("landingst", "imports", "exports", 
+                                 "aquaculture"),
+                      labels = c("Landings", "Imports", "Exports", 
+                                 "Aquaculture"), 
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  guides(shape = "none", linetype = "none",
+         colour = guide_legend(override.aes = list(
+           linetype = c("solid", "blank",
+                        "blank", "solid"),
+           shape = c(NA, 19, 19, NA))))
+
+# Reshape plot for haddock over time
+uk_haddock_quantity <- fish_data %>%
+  rowwise() %>% 
+  mutate(landingst = sum(landings, landings_abroad, na.rm=TRUE)) %>%
+  dplyr:: select(country, year, species, landingst, 
+                 imports, exports) %>%
+  filter(country == "UK", species == "Haddock") %>%
+  gather('type', 'quantity', 'landingst':'exports') %>%
+  arrange(year)
+
+uk_haddock_quantity$quantity <- 
+  as.numeric(uk_haddock_quantity$quantity)
+
+# Plot for haddock
+p5b <- ggplot(uk_haddock_quantity, aes(x = year, y = quantity,
+                                       color = type)) +
+  geom_line(data = subset(uk_haddock_quantity, 
+                          type == 'landingst')) +
+  geom_point(data = subset(uk_haddock_quantity, 
+                           type != 'landingst')) +
+  theme_classic(base_size = 16) +
+  labs(y = "Haddock 
+('000 tonnes)", colour = "", x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20), 
+                     limits = c(1919, 2020)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_colour_manual(limits = c("landingst", "imports", "exports", 
+                                 "aquaculture"),
+                      labels = c("Landings", "Imports", "Exports", 
+                                 "Aquaculture"), 
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  guides(shape = "none", linetype = "none",
+         colour = guide_legend(override.aes = list(
+           linetype = c("solid", "blank",
+                        "blank", "solid"),
+           shape = c(NA, 19, 19, NA))))
+
+# Reshape plot for herring over time
+uk_herring_quantity <- fish_data %>%
+  rowwise() %>% 
+  mutate(landingst = sum(landings, landings_abroad, na.rm=TRUE)) %>%
+  dplyr:: select(country, year, species, landingst, 
+                 imports, exports) %>%
+  filter(country == "UK", species == "Herring") %>%
+  gather('type', 'quantity', 'landingst':'exports') %>%
+  arrange(year)
+
+uk_herring_quantity$quantity <- 
+  as.numeric(uk_herring_quantity$quantity)
+
+# Plot for herring
+p5c <- ggplot(uk_herring_quantity, aes(x = year, y = quantity,
+                                       color = type)) +
+  geom_line(data = subset(uk_herring_quantity, 
+                          type == 'landingst')) +
+  geom_point(data = subset(uk_herring_quantity, 
+                           type != 'landingst')) +
+  theme_classic(base_size = 16) +
+  labs(y = "Herring 
+('000 tonnes)", colour = "", x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20), 
+                     limits = c(1919, 2020)) +
+  scale_y_continuous(breaks = seq(0, 500, 100),
+                     limits = c(0, 500)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_colour_manual(limits = c("landingst", "imports", "exports", 
+                                 "aquaculture"),
+                      labels = c("Landings", "Imports", "Exports", 
+                                 "Aquaculture"), 
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  guides(shape = "none", linetype = "none",
+         colour = guide_legend(override.aes = list(
+           linetype = c("solid", "blank",
+                        "blank", "solid"),
+           shape = c(NA, 19, 19, NA))))
+
+# Reshape plot for mackerel over time
+uk_mackerel_quantity <- fish_data %>%
+  rowwise() %>% 
+  mutate(landingst = sum(landings, landings_abroad, na.rm=TRUE)) %>%
+  dplyr:: select(country, year, species, landingst, 
+                 imports, exports) %>%
+  filter(country == "UK", species == "Mackerel") %>%
+  gather('type', 'quantity', 'landingst':'exports') %>%
+  arrange(year)
+
+uk_mackerel_quantity$quantity <- 
+  as.numeric(uk_mackerel_quantity$quantity)
+
+# Plot for mackerel
+p5d <- ggplot(uk_mackerel_quantity, aes(x = year, y = quantity,
+                                        color = type)) +
+  geom_line(data = subset(uk_mackerel_quantity, 
+                          type == 'landingst')) +
+  geom_point(data = subset(uk_mackerel_quantity, 
+                           type != 'landingst')) +
+  theme_classic(base_size = 16) +
+  labs(y = "Mackerel 
+('000 tonnes)", colour = "", x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20), 
+                     limits = c(1919, 2020)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_colour_manual(limits = c("landingst", "imports", "exports", 
+                                 "aquaculture"),
+                      labels = c("Landings", "Imports", "Exports", 
+                                 "Aquaculture"), 
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  guides(shape = "none", linetype = "none",
+         colour = guide_legend(override.aes = list(
+           linetype = c("solid", "blank",
+                        "blank", "solid"),
+           shape = c(NA, 19, 19, NA))))
+
+# Reshape plot for shrimps/prawns over time
+uk_shrimps_quantity <- fish_data %>%
+  rowwise() %>% 
+  mutate(landingst = sum(landings, landings_abroad, na.rm=TRUE)) %>%
+  dplyr:: select(country, year, species, landingst, 
+                 imports, exports) %>%
+  filter(country == "UK", species == "Shrimps/Prawns") %>%
+  gather('type', 'quantity', 'landingst':'exports') %>%
+  arrange(year)
+
+uk_shrimps_quantity$quantity <- 
+  as.numeric(uk_shrimps_quantity$quantity)
+
+# Plot for shrimps/prawns
+p5e <- ggplot(uk_shrimps_quantity, aes(x = year, y = quantity,
+                                       color = type)) +
+  geom_line(data = subset(uk_shrimps_quantity, 
+                          type == 'landingst')) +
+  geom_point(data = subset(uk_shrimps_quantity, 
+                           type != 'landingst')) +
+  theme_classic(base_size = 16) +
+  labs(y = "Shrimps and prawns  
+('000 tonnes)", colour = "", x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20), 
+                     limits = c(1919, 2020)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_colour_manual(limits = c("landingst", "imports", "exports", 
+                                 "aquaculture"),
+                      labels = c("Landings", "Imports", "Exports", 
+                                 "Aquaculture"), 
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  guides(shape = "none", linetype = "none",
+         colour = guide_legend(override.aes = list(
+           linetype = c("solid", "blank",
+                        "blank", "solid"),
+           shape = c(NA, 19, 19, NA))))
+
+# Reshape plot for salmon over time
+uk_salmon_quantity <- fish_data %>%
+  dplyr:: select(country, year, species, aquaculture, 
+                 imports, exports) %>%
+  filter(country == "UK", species == "Salmon") %>%
+  gather(type, quantity, aquaculture:exports) %>%
+  arrange(year)
+
+uk_salmon_quantity$quantity <- 
+  as.numeric(uk_salmon_quantity$quantity)
+
+# Plot for salmon
+p5f <- ggplot(uk_salmon_quantity, aes(x = year, y = quantity,
+                                      color = type)) +
+  geom_line(data = subset(uk_salmon_quantity, 
+                          type == 'aquaculture')) +
+  geom_point(data = subset(uk_salmon_quantity, 
+                           type != 'aquaculture')) +
+  geom_segment(aes(x = 1919, xend = 2020, 
+                   y = 0, yend = 0), col = "#BC3C29FF") +
+  theme_classic(base_size = 16) +
+  labs(y = "Salmon 
+('000 tonnes)", colour = "", x = "Year") +
+  scale_x_continuous(breaks = seq(1900, 2020, 20), 
+                     limits = c(1919, 2020)) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_colour_manual(limits = c("landings", "imports", "exports", 
+                                 "aquaculture"),
+                      labels = c("Landings", "Imports", "Exports", 
+                                 "Aquaculture"), 
+                      values = c("#BC3C29FF", "#0072B5FF",
+                                 "#E18727FF", "#808180FF")) +
+  guides(shape = "none", linetype = "none",
+         colour = guide_legend(override.aes = list(
+           linetype = c("solid", "blank",
+                        "blank", "solid"),
+           shape = c(NA, 19, 19, NA))))
+
+# Combine species plots and save figure
+p5i <- ggarrange(p5a, p5d, ncol = 2, 
+                 labels = c("a", "b"),
+                 align = 'v', common.legend = TRUE)
+p5ii <- ggarrange(p5b, p5c, ncol = 2, 
+                  labels = c("c", "d"),
+                  align = 'v', legend = 'none')
+p5iii <- ggarrange(p5e, p5f, ncol = 2, 
+                   labels = c("e", "f"),
+                   align = 'v', legend = 'none')
+
+p5 <- ggarrange(p5i, NULL, p5ii, NULL, p5iii,
+                ncol = 1, heights = c(1.15, -0.19, 1, -0.19, 1),
+                align = 'v')
+
+p5g <- cowplot::ggdraw(p5) + 
+  theme(plot.background = element_rect(fill="white", color = NA))
+
+save_plot("./fig.5.species_plots.png",
+          p5g, base_width=7.5, base_height = 8.5) 
+
+#########################################################################################
+## Influence of policy change on fish production and consumption ##
+
+## Total imports mismatch ##
+
+# Reshape data for analysis
+yearstatstot <- c('1906':'2020')
+
+tot_stats <- fish_data %>%
+  filter(species == "Total", year %in% yearstatstot) %>%
+  dplyr:: select(country, species, year, landings_consumed, 
+                 aquaculture_consumed, landings, imports, period, 
+                 exports, aquaculture, landings_abroad_consumed) %>%
+  replace(is.na(.), 0)
+
+tot_stats$imports_mismatch <- 
+  ifelse(tot_stats$year > 2019,
+         tot_stats$imports_mismatch == NA,
+         (tot_stats$imports/(tot_stats$landings_consumed +
+                               tot_stats$aquaculture_consumed +
+                               tot_stats$landings_abroad_consumed +
+                               tot_stats$imports -
+                               tot_stats$exports))*100)
+
+tot_stats$exports_mismatch <- 
+  ifelse(tot_stats$year > 2019,
+         tot_stats$exports_mismatch == NA,
+         (tot_stats$exports/
+            (tot_stats$landings_consumed +
+               tot_stats$aquaculture_consumed +
+               tot_stats$landings_abroad_consumed)) *100)
+
+tot_stats2 <- tot_stats %>%
+  dplyr:: select(country, year, 
+                 period, species, imports_mismatch, 
+                 exports_mismatch)
+
+# Order period in temporal order
+tot_stats2$period <- factor(tot_stats2$period,
+                            levels = c('Open access','WW', 'EEZ'),
+                            ordered = TRUE)
+
+# Use Tukey test to test for diffs among time periods
+# GLM for imports mismatch
+glm_tot <- glm(imports_mismatch ~ period + year, 
+               data = tot_stats2)
+
+# Levene's test
+car::leveneTest((imports_mismatch) ~ period, 
+                data = tot_stats2) # Not met
+car::leveneTest(log(imports_mismatch) ~ period, 
+                data = tot_stats2) # Met
+
+# Logged GLM
+glm_tot <- glm(log(imports_mismatch) ~ period + year, 
+               data = tot_stats2)
+
+##plot(glm_tot) # Assumptions met
+
+# Statistics results
+summary(glm_tot)
+tuk1 <- glht(glm_tot, linfct = mcp(period = "Tukey")) # Tukey
+summary(tuk1) # Open access ~ World Wars < EEZ/CFP
+tuk.cld <- cld(tuk1,decreasing=FALSE) # 'compact letter display
+
+# GAM for total imports mismatch
+tot_gam <- gam(imports_mismatch ~ s(year, k = 25),
+               data = tot_stats2, method = "REML") 
+
+# Check model assumptions with gam.check
+par(mar=c(1,1,1,1))
+par(mfrow = c(2,2))
+gam.check(tot_gam) # Assumptions met
+par(mfrow = c(1,1))
+
+# Check model assumptions with Dhama
+restotalimports <- simulateResiduals(tot_gam)
+plot(restotalimports) # Assumptions met
+
+# Gam model output
+summary(tot_gam)
+
+# Plot model
+p6ai <- visreg(tot_gam, "year", gg=TRUE,
+               line=list(col="black")) + #ggplot object
+  labs(x = 'Year', y = 'Import mismatch (%)') +
+  theme_classic(base_size = 16) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_y_continuous(breaks = seq(0, 175, 50),
+                     limits = c(-6, 175))+
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = -6, ymax = 145,
+           alpha = .3, fill = "grey75") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = -6, ymax = 145,
+           alpha = .3, fill = "#0072B5FF") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = -6, ymax = 145,
+           alpha = .3, fill = "grey75") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = -6, ymax = 145,
+           alpha = .3, fill = "#0072B5FF") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = -6, ymax = 145,
+           alpha = .3, fill = "grey75") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = -6, ymax = 145,
+           alpha = .3, fill = "#E18727FF") +
+  annotate("rect", xmin = 2020, xmax = 2025, 
+           ymin = -6, ymax = 145,
+           alpha = .3, fill = "#7876B1FF") +
+  scale_x_continuous(limits = c(1900, 2025),
+                     breaks = seq(1900, 2040, 20)) +
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = 145, ymax = 155,
+           fill = "grey") +
+  annotate("point", x = 1904, y = 163, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1904, y = 175, label = "OA") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = 145, ymax = 155,
+           fill = "grey30") +
+  annotate("point", x = 1916, y = 163, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1916, y = 175, label = "WWI") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = 145, ymax = 155,
+           fill = "grey") +
+  annotate("point", x = 1928.5, y = 163, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1928.5, y = 175, label = "OA") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = 145, ymax = 155,
+           fill = "grey30") +
+  annotate("point", x = 1942, y = 163, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1942, y = 175, label = "WWII") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = 145, ymax = 155,
+           fill = "grey") +
+  annotate("point", x = 1960.5, y = 163, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1960.5, y = 175, label = "OA") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = 145, ymax = 155,
+           fill = "black") +
+  annotate("point", x = 1998, y = 163, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 1998, y = 175, label = "EEZ/EU") +
+  annotate("rect", xmin = 2020, xmax = 2025,
+           ymin = 145, ymax = 155,
+           fill = "grey50") +
+  annotate("point", x = 2022.5, y = 163, shape = 25, 
+           fill = "black", size = 2) +
+  annotate("text", x = 2022.5, y = 175, label = "Brexit")
+
+# Boxplot for diffs between periods
+p6aii <- ggplot(tot_stats2, aes(x = period, y = imports_mismatch,
+                                fill = period)) +
+  geom_boxplot() +
+  stat_summary(fun="mean", shape = 17) +
+  labs(y = ' ', x = 'Period') +
+  scale_x_discrete(labels = 
+                     c("Open access","World Wars", "EEZ/EU")) +
+  theme_classic(base_size = 16) +
+  theme(axis.text.y = element_blank(), 
+        axis.text.x = element_text(colour = "black"), 
+        axis.title.x = element_text(face = "bold"),
+        legend.position = "none") +
+  annotate("text",x=unique(tot_stats2$period),y=173,
+           label=tuk.cld$mcletters$Letters, size = 6) +
+  scale_y_continuous(breaks = seq(0, 175, 50),
+                     limits = c(-6, 175)) +
+  scale_fill_manual(values = alpha(c("grey75", "#0072B5FF",
+                                     "#E18727FF"), 0.3))
+
+# Combine gam and boxplot
+p6a <- ggarrange(p6ai, p6aii, ncol = 2,
+                 labels = c("a", "b"), widths = c(1, 0.87))
+
+# Segmented analysis for total imports mismatch
+glm_tot_year <- glm(imports_mismatch ~ year, 
+                    data = tot_stats2)
+
+# Select number of breakpoints
+summary(selgmented(glm_tot_year,seg.Z=~year,
+                   control=seg.control(display=FALSE),
+                   type = "bic"))
+
+## Total exports mismatch ##
+
+# GAM for total exports mismatch
+export_years <- c(1906:2020)
+
+tot_stats_ex <- tot_stats2 %>%
+  filter(year %in% export_years)
+
+# Use Tukey test to test for diffs among time periods
+glm_totex <- glm(exports_mismatch ~ period + year, 
+                 data = tot_stats_ex)
+
+# Levene's test
+car::leveneTest((exports_mismatch) ~ period, 
+                data = tot_stats_ex) # Met
+
+##plot(glm_totex) # Assumptions met
+
+# Statistics results
+summary(glm_totex)
+tuk2 <- glht(glm_totex, linfct = mcp(period = "Tukey")) # Tukey
+summary(tuk2) # World Wars ~ Open access < EEZ/CFP
+tuk.cld2 <- cld(tuk2,decreasing=FALSE) # 'compact letter display
+
+# GAM for total exports mismatch
+tot_gamex <- gam(exports_mismatch ~ s(year, k = 25),
+                 data = tot_stats_ex, 
+                 method = "REML")
+
+# Check model assumptions with gam.check
+par(mfrow = c(2,2))
+gam.check(tot_gamex) #Assumptions met
+par(mfrow = c(1,1))
+
+# Check model assumptions with Dhama
+resexportstotal <- simulateResiduals(tot_gamex)
+plot(resexportstotal) # Assumptions met
+
+# Gam model output
+summary(tot_gamex)
+
+# Plot model
+p6bi <- visreg(tot_gamex, "year", gg=TRUE,
+               line=list(col="black")) + #ggplot object
+  labs(x = 'Year', y = 'Export mismatch (%)') +
+  theme_classic(base_size = 16) +
+  theme(axis.text.y = element_text(colour = "black"), 
+        axis.text.x = element_text(colour = "black"),
+        axis.title.y = element_text(face = "bold"), 
+        axis.title.x = element_text(face = "bold")) +
+  scale_y_continuous(breaks = seq(0, 175, 50),
+                     limits = c(-6, 175)) +
+  annotate("rect", xmin = 1900, xmax = 1914, 
+           ymin = -6, ymax = 175,
+           alpha = .3, fill = "grey75") +
+  annotate("rect", xmin = 1914, xmax = 1918, 
+           ymin = -6, ymax = 175,
+           alpha = .3, fill = "#0072B5FF") +
+  annotate("rect", xmin = 1918, xmax = 1939, 
+           ymin = -6, ymax = 175,
+           alpha = .3, fill = "grey75") +
+  annotate("rect", xmin = 1939, xmax = 1945, 
+           ymin = -6, ymax = 175,
+           alpha = .3, fill = "#0072B5FF") +
+  annotate("rect", xmin = 1945, xmax = 1976, 
+           ymin = -6, ymax = 175,
+           alpha = .3, fill = "grey75") +
+  annotate("rect", xmin = 1976, xmax = 2020, 
+           ymin = -6, ymax = 175,
+           alpha = .3, fill = "#E18727FF") +
+  annotate("rect", xmin = 2020, xmax = 2025, 
+           ymin = -6, ymax = 175,
+           alpha = .3, fill = "#7876B1FF") +
+  scale_x_continuous(limits = c(1900, 2025),
+                     breaks = seq(1900, 2040, 20))
+
+# Boxplot for diffs between periods
+p6bii <- ggplot(tot_stats_ex, aes(x = period, 
+                                  y = exports_mismatch,
+                                  fill = period)) +
+  geom_boxplot() +
+  stat_summary(fun="mean", shape = 17) +
+  labs(y = '', x = 'Period') +
+  scale_x_discrete(labels = 
+                     c("Open access","World Wars", "EEZ/EU")) +
+  theme_classic(base_size = 16) +
+  theme(axis.text.y = element_blank(),
+        axis.text.x = element_text(colour = "black"), 
+        axis.title.x = element_text(face = "bold"),
+        legend.position = "none") +
+  annotate("text",x=unique(tot_stats_ex$period),y=173,
+           label=tuk.cld2$mcletters$Letters, size = 6) +
+  scale_y_continuous(breaks = seq(0, 175, 50),
+                     limits = c(-6, 175)) +
+  scale_fill_manual(values = alpha(c("grey75", "#0072B5FF",
+                                     "#E18727FF"), 0.3))
+
+# Combine gam and boxplot
+p6b <- ggarrange(p6bi, p6bii, ncol = 2,
+                 labels = c("c", "d"), widths = c(1, 0.87))
+
+# Segmented analysis for total exports mismatch
+glm_tot_yearex <- glm(exports_mismatch ~ year, 
+                      data = 
+                        subset(tot_stats_ex, year = c(1906:2019)))
+
+# Select number of breakpoints
+summary(selgmented(glm_tot_yearex,seg.Z=~year,
+                   control=seg.control(display=FALSE),
+                   type = "bic"))
+
+# Combine plots for total imports and exports gams and boxplots
+p6 <- ggarrange(p6a, NULL, p6b, ncol = 1
+                , align = 'v', heights = c(1, -0.175, 1))
+
+save_plot("./fig.6.imports_exports_mismatches.png",
+          p6, base_width=8.5, base_height=6.15)
